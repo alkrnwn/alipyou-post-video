@@ -64,6 +64,26 @@
     catch (e) { toast(e.message, true); }
   }
 
+  function createSkeleton(type = 'card', count = 3) {
+    const wrap = h('div', { class: 'skeleton-wrap' });
+    for (let i = 0; i < count; i++) {
+      wrap.append(h('div', { class: `skeleton skeleton-${type}` }));
+    }
+    return wrap;
+  }
+
+  function createEmptyState({ icon = '📭', title = 'Tidak Ada Data', desc = '', actionText = '', onAction = null }) {
+    const kids = [
+      h('div', { class: 'empty-state-icon' }, icon),
+      h('div', { class: 'empty-state-title' }, title)
+    ];
+    if (desc) kids.push(h('div', { class: 'empty-state-desc' }, desc));
+    if (actionText && onAction) {
+      kids.push(h('button', { class: 'btn primary', onclick: onAction, style: 'font-weight: 600;' }, actionText));
+    }
+    return h('div', { class: 'empty-state-box' }, ...kids);
+  }
+
   const main = document.getElementById('main');
   let view = 'beranda';
   let poll = null;
@@ -72,6 +92,17 @@
 
   // ---------------- Beranda ----------------
   async function viewBeranda() {
+    main.replaceChildren(
+      h('section', {},
+        h('h2', {}, 'Dashboard Sistem & Metrik Utama'),
+        createSkeleton('card', 4)
+      ),
+      h('section', {},
+        h('h2', {}, 'Distribusi Status Tugas'),
+        createSkeleton('row', 3)
+      )
+    );
+
     const [rep, cfg, accts, tasks] = await Promise.all([
       api('/report'),
       api('/config'),
@@ -82,6 +113,107 @@
     const totalAccts = accts.length;
     const queuedTasks = rep.by_status['QUEUED'] || 0;
     const verifiedTasks = rep.by_status['VERIFIED'] || 0;
+
+    // Quick Action Panel untuk Tugas NEEDS_OPERATOR & REVIEW_REQUIRED
+    const attentionTasks = (tasks || []).filter(t => t.status === 'NEEDS_OPERATOR' || t.status === 'REVIEW_REQUIRED');
+    let attentionPanel = null;
+
+    if (attentionTasks.length > 0) {
+      const attentionList = h('div', { class: 'attention-list' });
+      attentionTasks.forEach(t => {
+        const screenshotUrl = `/api/tasks/${t.id}/screenshot?_t=${Date.now()}`;
+        const imgThumb = h('img', {
+          class: 'attention-thumb',
+          src: screenshotUrl,
+          alt: `Layar VMOS ${t.pad_code}`,
+          title: 'Klik untuk perbesar layar emulator VMOS'
+        });
+        const thumbWrap = h('div', {
+          class: 'attention-thumb-wrap',
+          title: 'Klik untuk membuka tangkapan layar emulator dalam tab baru',
+          onclick: () => window.open(screenshotUrl, '_blank')
+        }, imgThumb);
+
+        const btnAutoPost = h('button', {
+          class: 'btn primary',
+          style: 'font-size: 12px; font-weight: 700;',
+          onclick: async () => {
+            toast(`⚡ Menjalankan ulang Auto-Post untuk #${t.id} (@${t.username})…`);
+            try {
+              await api(`/tasks/${t.id}/run-full`, 'POST');
+              toast(`✅ Tugas #${t.id} (@${t.username}) berhasil dijalankan!`);
+              await viewBeranda();
+            } catch (e) {
+              toast(`Gagal menjalankan tugas: ${e.message}`, true);
+              await viewBeranda();
+            }
+          }
+        }, '⚡ Auto-Post Otomatis di VMOS');
+
+        const btnGoPosting = h('button', {
+          class: 'btn',
+          style: 'font-size: 12px; font-weight: 600;',
+          onclick: () => show('posting')
+        }, '👉 Buka di Tab Posting');
+
+        const btnCancel = h('button', {
+          class: 'btn danger',
+          style: 'font-size: 12px;',
+          onclick: async () => {
+            if (!confirm(`Batalkan tugas #${t.id} (@${t.username})? Aplikasi Shopee di VMOS akan di-force stop.`)) return;
+            try {
+              await api(`/tasks/${t.id}/cancel`, 'POST', { reason: 'Dibatalkan oleh operator dari Beranda' });
+              toast(`✓ Tugas #${t.id} dibatalkan.`);
+              await viewBeranda();
+            } catch (e) {
+              toast(e.message, true);
+            }
+          }
+        }, '🛑 Batalkan Tugas');
+
+        const noteText = t.note || (t.status === 'NEEDS_OPERATOR'
+          ? 'Emulator memerlukan tindakan operator (kemungkinan Captcha Shopee, Session Expired, atau Gagal Klik Tombol)'
+          : 'Hasil posting belum terkonfirmasi, periksa profil akun');
+
+        const card = h('div', { class: 'attention-card' },
+          thumbWrap,
+          h('div', { class: 'attention-info' },
+            h('div', { class: 'attention-task-id' },
+              h('span', {}, `#${t.id} · @${t.username}`),
+              h('span', { class: 'badge-device' }, `VMOS: ${t.pad_code}`),
+              badge(t.status)
+            ),
+            h('div', { class: 'attention-note' }, `⚠️ Masalah: ${noteText}`),
+            h('div', { class: 'hint', style: 'margin-top: 5px; font-size: 11.5px;' },
+              `Percobaan ke-${t.attempt} · Batch: ${t.batch || '-'} · Dibuat: ${(t.created_at || '').replace('T', ' ').slice(0, 19)}`
+            )
+          ),
+          h('div', { class: 'attention-actions' },
+            btnAutoPost,
+            btnGoPosting,
+            btnCancel
+          )
+        );
+        attentionList.append(card);
+      });
+
+      attentionPanel = h('div', { class: 'attention-panel' },
+        h('div', { class: 'attention-header' },
+          h('div', { class: 'attention-title' },
+            `⚠️ PERHATIAN OPERATOR: ${attentionTasks.length} TUGAS MEMBUTUHKAN TINDAKAN!`
+          ),
+          h('button', {
+            class: 'btn',
+            style: 'font-size: 11px; padding: 4px 10px;',
+            onclick: () => viewBeranda()
+          }, '🔄 Perbarui Status')
+        ),
+        h('p', { class: 'hint', style: 'margin: 0 0 12px; color: #92400e; font-size: 12.5px;' },
+          'Cuplikan layar VMOS di bawah diambil langsung dari emulator saat tugas terhenti. Periksa apakah emulator terkena Captcha, OTP, Sesi Habis, atau Layar Macet:'
+        ),
+        attentionList
+      );
+    }
 
     const metricGrid = h('div', { class: 'metric-grid' },
       h('div', { class: 'metric-card' },
@@ -146,7 +278,11 @@
           rep.cleanup_attention.map(a => `${a.pad_code} (${a.cleanup_status}: ${a.n})`).join(', '))
       : h('p', { class: 'hint' }, '✓ Semua penyimpanan video di ponsel cloud dalam kondisi bersih.');
 
-    main.replaceChildren(
+    const mainKids = [];
+    if (attentionPanel) {
+      mainKids.push(attentionPanel);
+    }
+    mainKids.push(
       h('section', {},
         h('h2', {}, 'Dashboard Sistem & Metrik Utama'),
         metricGrid,
@@ -162,6 +298,7 @@
         attention
       )
     );
+    main.replaceChildren(...mainKids);
   }
 
   async function startNext() {
@@ -340,12 +477,37 @@
       return { a, cb, tr, num, text: `${a.kode} ${a.username} ${a.label || ''} ${a.pad_code}`.toLowerCase() };
     });
 
-    filter.addEventListener('input', () => {
+    let batchFilterMode = '';
+    const batchFilterPills = h('div', { class: 'pill-chips', style: 'margin: 6px 0 10px;' },
+      h('div', { class: 'pill-chip active', onclick: (e) => setBatchFilter('', e.currentTarget) }, `🔘 Semua (${rows.length})`),
+      h('div', { class: 'pill-chip', onclick: (e) => setBatchFilter('NORMAL', e.currentTarget) }, '🟢 Normal'),
+      h('div', { class: 'pill-chip', onclick: (e) => setBatchFilter('PERMANEN', e.currentTarget) }, '🔴 Banned/Permanen')
+    );
+
+    function setBatchFilter(mode, el) {
+      batchFilterMode = mode;
+      batchFilterPills.querySelectorAll('.pill-chip').forEach(c => c.classList.remove('active'));
+      el.classList.add('active');
+      applyBatchFilter();
+    }
+
+    function applyBatchFilter() {
       const q = filter.value.trim().toLowerCase();
+      let visible = 0;
       rows.forEach(r => {
-        r.tr.style.display = r.text.includes(q) ? '' : 'none';
+        const isPerm = (r.a.status_akun || '').toUpperCase() === 'PERMANEN' || (r.a.status_akun || '').toUpperCase() === 'BANNED';
+        let matchStatus = true;
+        if (batchFilterMode === 'NORMAL') matchStatus = !isPerm;
+        else if (batchFilterMode === 'PERMANEN') matchStatus = isPerm;
+        const matchSearch = !q || r.text.includes(q);
+        const show = matchStatus && matchSearch;
+        r.tr.style.display = show ? '' : 'none';
+        if (show) visible++;
       });
-    });
+      countBadge.textContent = `${rows.filter(r => r.cb.checked).length} terpilih (${visible} tampil)`;
+    }
+
+    filter.addEventListener('input', applyBatchFilter);
 
     const btnAll = h('button', { class: 'btn', type: 'button', onclick: () => {
       rows.forEach(r => {
@@ -467,7 +629,105 @@
 
     const shopeeLinkIn = h('input', { placeholder: '1. Tempel link produk Shopee (shopee.co.id/... atau s.shopee.co.id/...)', style: 'flex: 2 1 240px;' });
     const btnScrape = h('button', { class: 'btn', type: 'button', style: 'font-weight: 600;' }, '🔍 Ambil Bahan & Kuncian Prompt');
-    const flowVideoIn = h('input', { placeholder: '2. Tempel link video Google Flow (flow.google.com/shared/video/...) atau file MP4', style: 'flex: 2 1 240px;' });
+    const flowVideoIn = h('input', { placeholder: 'Tempel link video Google Flow (flow.google.com/shared/video/...) atau nama file video', style: 'flex: 2 1 240px;' });
+
+    // Drag-and-Drop Zone & Video Metadata Validator
+    const dropzoneContainer = h('div', { class: 'dropzone-container' });
+    const fileInput = h('input', { type: 'file', accept: 'video/mp4,video/*', style: 'display: none;' });
+    let videoMetaCard = null;
+
+    function resetVideoSelection() {
+      flowVideoIn.value = '';
+      if (videoMetaCard) {
+        videoMetaCard.remove();
+        videoMetaCard = null;
+      }
+      dropzone.style.display = 'flex';
+      fileInput.value = '';
+    }
+
+    function handleVideoFile(file) {
+      if (!file) return;
+      const objectUrl = URL.createObjectURL(file);
+      const tempVideo = document.createElement('video');
+      tempVideo.preload = 'metadata';
+      tempVideo.src = objectUrl;
+      flowVideoIn.value = file.name;
+
+      tempVideo.onloadedmetadata = () => {
+        const width = tempVideo.videoWidth || 0;
+        const height = tempVideo.videoHeight || 1;
+        const durSec = tempVideo.duration || 0;
+        const ratio = width / height;
+        const is916 = ratio <= 0.65;
+        const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+        const m = Math.floor(durSec / 60);
+        const s = Math.floor(durSec % 60);
+        const durStr = `${m}:${s < 10 ? '0' : ''}${s}`;
+
+        const badgeCls = is916 ? 'aspect-badge ok' : 'aspect-badge warn';
+        const badgeText = is916
+          ? `✅ Rasio 9:16 Vertikal (${width}×${height}) — Format Ideal Shopee Video`
+          : `⚠️ Rasio ${width}×${height} (${ratio.toFixed(2)}) — Disarankan video vertikal 9:16`;
+
+        const vidPreview = h('video', {
+          class: 'video-preview-thumb',
+          src: objectUrl,
+          muted: true,
+          autoplay: true,
+          loop: true,
+          playsinline: true
+        });
+
+        const btnRemove = h('button', {
+          class: 'btn',
+          type: 'button',
+          style: 'font-size: 11.5px; padding: 4px 10px;',
+          onclick: resetVideoSelection
+        }, '✕ Ganti Video');
+
+        if (videoMetaCard) videoMetaCard.remove();
+        videoMetaCard = h('div', { class: 'video-meta-card' },
+          vidPreview,
+          h('div', { class: 'video-info-box' },
+            h('div', { style: 'font-weight: 700; font-size: 13.5px; color: #1e293b;' }, file.name),
+            h('div', { class: 'hint' }, `Ukuran: ${sizeMb} MB · Durasi: ${durStr}`),
+            h('div', { class: badgeCls, style: 'margin-top: 4px;' }, badgeText)
+          ),
+          h('div', {}, btnRemove)
+        );
+
+        dropzone.style.display = 'none';
+        dropzoneContainer.append(videoMetaCard);
+        toast(`Video terdeteksi: ${file.name} (${durStr}, ${sizeMb} MB)`);
+      };
+    }
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files[0]) {
+        handleVideoFile(fileInput.files[0]);
+      }
+    });
+
+    const dropzone = h('div', {
+      class: 'dropzone',
+      onclick: () => fileInput.click(),
+      ondragover: (e) => { e.preventDefault(); dropzone.classList.add('dragover'); },
+      ondragleave: () => dropzone.classList.remove('dragover'),
+      ondrop: (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          handleVideoFile(e.dataTransfer.files[0]);
+        }
+      }
+    },
+      h('div', { class: 'dropzone-icon' }, '🎬'),
+      h('div', { class: 'dropzone-text' }, 'Tarik & Letakkan Berkas Video MP4 ke Sini, atau Klik untuk Memilih'),
+      h('div', { class: 'dropzone-sub' }, 'Otomatis menganalisis durasi, ukuran berkas, dan memvalidasi rasio 9:16 untuk Shopee Video')
+    );
+
+    dropzoneContainer.append(dropzone, fileInput);
 
     const previewContainer = h('div', { class: 'preview-grid', style: 'display: none;' });
     let currentExtractedData = null;
@@ -622,6 +882,7 @@
       // Reset input form
       shopeeLinkIn.value = '';
       flowVideoIn.value = '';
+      resetVideoSelection();
       currentExtractedData = null;
       previewContainer.style.display = 'none';
 
@@ -654,16 +915,37 @@
         btnScrape
       ),
       previewContainer,
-      h('div', { class: 'row', style: 'margin-top: 10px;' },
-        flowVideoIn,
-        btnSaveNext
+      h('div', { style: 'margin-top: 14px;' },
+        h('label', { style: 'font-weight: 700; font-size: 13px; color: #1e293b; margin-bottom: 6px; display: block;' },
+          'Unggah Berkas Video Shopee (Dropzone 9:16) atau Tautan Google Flow:'
+        ),
+        dropzoneContainer,
+        h('div', { class: 'row', style: 'margin-top: 10px;' },
+          flowVideoIn,
+          btnSaveNext
+        )
       ),
       h('p', { class: 'hint', style: 'margin: 6px 0 0;' },
-        '💡 Alur: Tempel link Shopee → Klik Ambil Bahan → Salin Foto & Kuncian Prompt ke Google Flow → Tempel link video Flow → Klik Simpan & Lanjut ke Akun Berikutnya.'
+        '💡 Alur: Tempel link Shopee → Klik Ambil Bahan → Salin Foto & Kuncian Prompt ke Google Flow → Tarik file video MP4 ke dropzone (atau tempel link video Flow) → Klik Simpan & Lanjut ke Akun Berikutnya.'
       )
     );
 
     tasksBox = h('div', {});
+
+    let currentQueueFilter = '';
+    const queueFilterPills = h('div', { class: 'pill-chips', style: 'margin: 10px 0 14px;' },
+      h('div', { class: 'pill-chip active', onclick: (e) => setQueueFilter('', e.currentTarget) }, '🔘 Semua'),
+      h('div', { class: 'pill-chip', onclick: (e) => setQueueFilter('NEEDS_OPERATOR', e.currentTarget) }, '⚠️ Butuh Operator'),
+      h('div', { class: 'pill-chip', onclick: (e) => setQueueFilter('QUEUED', e.currentTarget) }, '⏳ Antre Siap Post'),
+      h('div', { class: 'pill-chip', onclick: (e) => setQueueFilter('FAILED', e.currentTarget) }, '❌ Gagal')
+    );
+
+    function setQueueFilter(status, el) {
+      currentQueueFilter = status;
+      queueFilterPills.querySelectorAll('.pill-chip').forEach(c => c.classList.remove('active'));
+      el.classList.add('active');
+      refreshTasks(currentQueueFilter);
+    }
 
     const queueSection = h('section', { class: 'queue-box' },
       h('div', { class: 'queue-header' },
@@ -676,6 +958,7 @@
         )
       ),
       autoPilotBanner,
+      queueFilterPills,
       tasksBox
     );
 
@@ -688,6 +971,7 @@
         h('h3', { style: 'font-size: 13.5px; font-weight: 700; margin: 0 0 10px;' }, `Pilih Akun Sekaligus (${accts.length} akun terdaftar)`),
         h('div', { class: 'row' }, h('label', {}, 'Video: ', vidSel), batch, caption),
         toolbar,
+        batchFilterPills,
         listWrap,
         h('div', { class: 'row', style: 'margin-top: 10px;' }, create),
         h('hr', { style: 'margin: 16px 0; border: none; border-top: 1px dashed var(--line);' }),
@@ -705,15 +989,39 @@
     await refreshTasks();
   }
 
-  async function refreshTasks() {
+  let activeQueueFilter = '';
+  async function refreshTasks(filterStatus) {
+    if (filterStatus !== undefined) activeQueueFilter = filterStatus;
     if (!tasksBox || !tasksBox.isConnected) return;
     const busy = [...tasksBox.querySelectorAll('input')].some(i => i === document.activeElement || i.value);
     if (busy) return;
     const all = await api('/tasks');
     const today = new Date().toISOString().slice(0, 10);
-    const live = all.filter(t => ['QUEUED', 'PREPARING', 'NEEDS_OPERATOR', 'PAUSED', 'REVIEW_REQUIRED'].includes(t.status) ||
+    let live = all.filter(t => ['QUEUED', 'PREPARING', 'NEEDS_OPERATOR', 'PAUSED', 'REVIEW_REQUIRED'].includes(t.status) ||
       (t.status === 'FAILED' && (t.finished_at || '').startsWith(today)));
-    tasksBox.replaceChildren(...(live.length ? live.map(taskCard) : [h('p', { class: 'hint', style: 'padding: 8px 0;' }, '✓ Tidak ada tugas aktif atau antrean saat ini. Buat tugas baru melalui Studio Operator di bawah.')]));
+
+    if (activeQueueFilter) {
+      live = live.filter(t => {
+        if (activeQueueFilter === 'NEEDS_OPERATOR') return t.status === 'NEEDS_OPERATOR' || t.status === 'REVIEW_REQUIRED';
+        if (activeQueueFilter === 'QUEUED') return t.status === 'QUEUED' || t.status === 'PREPARING';
+        if (activeQueueFilter === 'FAILED') return t.status === 'FAILED';
+        return true;
+      });
+    }
+
+    if (!live.length) {
+      tasksBox.replaceChildren(createEmptyState({
+        icon: '🎬',
+        title: 'Antrean Tugas Kosong',
+        desc: activeQueueFilter
+          ? 'Tidak ada tugas yang sesuai dengan filter ini.'
+          : 'Tidak ada tugas aktif atau antrean saat ini. Buat tugas baru melalui Studio Operator di bawah atau sinkronkan data akun dari Google Sheets.',
+        actionText: '🔄 Sinkronkan Google Sheets Sekarang',
+        onAction: () => show('pengaturan')
+      }));
+    } else {
+      tasksBox.replaceChildren(...live.map(taskCard));
+    }
 
     const qBadge = document.getElementById('queueBadge');
     if (qBadge) {
@@ -885,10 +1193,32 @@
     const detail = h('div', {});
     const tbl = h('div', {});
     let allRows = [];
+    let currentRiwayatFilter = '';
+
+    const filterPills = h('div', { class: 'pill-chips', style: 'margin: 6px 0 12px;' },
+      h('div', { class: 'pill-chip active', onclick: (e) => setRiwayatFilter('', e.currentTarget) }, '🔘 Semua'),
+      h('div', { class: 'pill-chip', onclick: (e) => setRiwayatFilter('NEEDS_OPERATOR', e.currentTarget) }, '⚠️ Butuh Operator'),
+      h('div', { class: 'pill-chip', onclick: (e) => setRiwayatFilter('QUEUED', e.currentTarget) }, '⏳ Antre'),
+      h('div', { class: 'pill-chip', onclick: (e) => setRiwayatFilter('FAILED', e.currentTarget) }, '❌ Gagal'),
+      h('div', { class: 'pill-chip', onclick: (e) => setRiwayatFilter('VERIFIED', e.currentTarget) }, '✅ Selesai')
+    );
+
+    function setRiwayatFilter(st, el) {
+      currentRiwayatFilter = st;
+      filterPills.querySelectorAll('.pill-chip').forEach(c => c.classList.remove('active'));
+      el.classList.add('active');
+      renderFiltered();
+    }
 
     function renderFiltered() {
       const q = searchIn.value.trim().toLowerCase();
       const filtered = allRows.filter(t => {
+        if (currentRiwayatFilter) {
+          if (currentRiwayatFilter === 'NEEDS_OPERATOR' && !['NEEDS_OPERATOR', 'REVIEW_REQUIRED'].includes(t.status)) return false;
+          if (currentRiwayatFilter === 'QUEUED' && !['QUEUED', 'PREPARING'].includes(t.status)) return false;
+          if (currentRiwayatFilter === 'FAILED' && !['FAILED', 'CANCELLED'].includes(t.status)) return false;
+          if (currentRiwayatFilter === 'VERIFIED' && t.status !== 'VERIFIED') return false;
+        }
         if (!q) return true;
         const text = `${t.id} ${t.username} ${t.pad_code} ${t.video_id || ''} ${t.status} ${t.batch || ''}`.toLowerCase();
         return text.includes(q);
@@ -896,7 +1226,15 @@
       countBadge.textContent = `${filtered.length} riwayat ditemukan`;
 
       if (!filtered.length) {
-        tbl.replaceChildren(h('p', { class: 'hint', style: 'padding: 16px 0; text-align: center;' }, 'Tidak ada riwayat tugas yang cocok.'));
+        tbl.replaceChildren(createEmptyState({
+          icon: '📜',
+          title: 'Riwayat Tugas Tidak Ditemukan',
+          desc: q
+            ? `Tidak ada tugas dengan kata kunci "${q}". Coba kata kunci lain atau pilih filter "Semua".`
+            : 'Belum ada data tugas yang sesuai dengan kriteria penyaringan saat ini.',
+          actionText: '👉 Buka Studio Posting',
+          onAction: () => show('posting')
+        }));
         return;
       }
 
@@ -917,6 +1255,7 @@
     }
 
     async function load() {
+      tbl.replaceChildren(createSkeleton('row', 6));
       const rows = await api('/tasks' + (sel.value ? '?status=' + sel.value : ''));
       allRows = rows.slice().reverse();
       renderFiltered();
@@ -924,10 +1263,27 @@
 
     async function showHistory(t) {
       const hist = await api(`/tasks/${t.id}/history`);
+      const screenshotUrl = `/api/tasks/${t.id}/screenshot?_t=${Date.now()}`;
       detail.replaceChildren(h('section', { style: 'margin-top: 18px;' },
         h('div', { style: 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;' },
           h('h2', { style: 'margin: 0;' }, `Riwayat Transisi Tugas #${t.id} (@${t.username})`),
           h('button', { class: 'btn', style: 'font-size: 12px; padding: 3px 8px;', onclick: () => detail.replaceChildren() }, '✖ Tutup Detail')
+        ),
+        h('div', { style: 'display: grid; grid-template-columns: 120px 1fr; gap: 16px; margin-bottom: 14px; align-items: center;' },
+          h('div', {
+            class: 'attention-thumb-wrap',
+            style: 'width: 120px; height: 180px;',
+            title: 'Klik untuk membuka tangkapan layar penuh',
+            onclick: () => window.open(screenshotUrl, '_blank')
+          },
+            h('img', { class: 'attention-thumb', src: screenshotUrl, alt: 'Cuplikan Layar' })
+          ),
+          h('div', {},
+            h('div', { style: 'font-weight: 700; font-size: 14px;' }, `#${t.id} · @${t.username} · VMOS ${t.pad_code}`),
+            h('div', { style: 'margin: 4px 0;' }, badge(t.status)),
+            h('div', { class: 'hint' }, `Catatan: ${t.note || '—'}`),
+            h('div', { class: 'hint' }, `Pembersihan device: ${t.cleanup_status || '—'} · Percobaan: ${t.attempt}`)
+          )
         ),
         h('div', { class: 'table-wrap' },
           h('table', { class: 'acct-table' },
@@ -955,6 +1311,7 @@
           searchIn,
           countBadge
         ),
+        filterPills,
         tbl
       ),
       detail
@@ -1126,13 +1483,36 @@
 
     function renderAccountTable(accts) {
       if (!accts || !accts.length) {
-        return h('p', { class: 'hint', style: 'padding: 10px 0;' }, 'Belum ada akun yang dimuat. Klik tombol "Update List (Muat Akun)" di atas untuk memuat data akun dari Google Sheet.');
+        return createEmptyState({
+          icon: '👥',
+          title: 'Belum Ada Akun Shopee yang Dimuat',
+          desc: 'Daftar akun masih kosong. Masukkan link Google Sheet Anda pada form di atas dan klik tombol "Update List (Muat Akun)".',
+          actionText: '🔄 Sinkronkan Google Sheets Sekarang',
+          onAction: () => syncUrlBtn.click()
+        });
       }
       accts.sort((a, b) => {
         const na = parseInt((a.kode || '').replace(/\D+/g, '') || '0', 10);
         const nb = parseInt((b.kode || '').replace(/\D+/g, '') || '0', 10);
         return na - nb || (a.kode || '').localeCompare(b.kode || '');
       });
+
+      const permCount = accts.filter(a => ['PERMANEN', 'BANNED'].includes((a.status_akun || '').toUpperCase())).length;
+      const normalCount = accts.length - permCount;
+
+      let currentAccountFilter = '';
+      const filterPills = h('div', { class: 'pill-chips', style: 'margin: 6px 0 10px;' },
+        h('div', { class: 'pill-chip active', onclick: (e) => setAccountFilter('', e.currentTarget) }, `🔘 Semua (${accts.length})`),
+        h('div', { class: 'pill-chip', onclick: (e) => setAccountFilter('NORMAL', e.currentTarget) }, `🟢 Normal (${normalCount})`),
+        h('div', { class: 'pill-chip', onclick: (e) => setAccountFilter('PERMANEN', e.currentTarget) }, `🔴 Banned/Permanen (${permCount})`)
+      );
+
+      function setAccountFilter(st, el) {
+        currentAccountFilter = st;
+        filterPills.querySelectorAll('.pill-chip').forEach(c => c.classList.remove('active'));
+        el.classList.add('active');
+        applyAccountFilter();
+      }
 
       const searchIn = h('input', { placeholder: 'Cari Kode, Username, atau Pad Code...', style: 'flex: 1 1 200px;' });
       const countBadge = h('span', { class: 'badge', style: 'font-size: 12.5px; padding: 4px 10px;' }, `${accts.length} Akun Terdaftar`);
@@ -1151,26 +1531,33 @@
           h('td', { style: 'font-weight: 600; text-align: center;' }, a.label ? `VMOS ${a.label}` : '—'),
           h('td', {}, statusBadge)
         );
-        return { a, tr, text: `${idx + 1} ${a.kode} ${a.username} ${a.pad_code} ${a.label || ''} ${a.status_akun || ''}`.toLowerCase() };
+        return { a, tr, isPerm, text: `${idx + 1} ${a.kode} ${a.username} ${a.pad_code} ${a.label || ''} ${a.status_akun || ''}`.toLowerCase() };
       });
 
-      searchIn.addEventListener('input', () => {
+      function applyAccountFilter() {
         const q = searchIn.value.trim().toLowerCase();
         let visibleCount = 0;
         rows.forEach(r => {
-          const show = r.text.includes(q);
+          let matchStatus = true;
+          if (currentAccountFilter === 'NORMAL') matchStatus = !r.isPerm;
+          else if (currentAccountFilter === 'PERMANEN') matchStatus = r.isPerm;
+          const matchSearch = !q || r.text.includes(q);
+          const show = matchStatus && matchSearch;
           r.tr.style.display = show ? '' : 'none';
           if (show) visibleCount++;
         });
-        countBadge.textContent = q ? `${visibleCount} dari ${accts.length} Akun` : `${accts.length} Akun Terdaftar`;
-      });
+        countBadge.textContent = `${visibleCount} dari ${accts.length} Akun`;
+      }
+
+      searchIn.addEventListener('input', applyAccountFilter);
 
       return h('div', {},
         h('div', { class: 'toolbar', style: 'margin-top: 10px;' },
           searchIn,
           countBadge
         ),
-        h('div', { class: 'acct-wrap', style: 'max-height: 420px;' },
+        filterPills,
+        h('div', { class: 'table-wrap acct-wrap', style: 'max-height: 420px;' },
           h('table', { class: 'acct-table' },
             h('thead', {}, h('tr', {},
               h('th', { style: 'width: 45px; text-align: center;' }, 'No'),
@@ -1188,6 +1575,7 @@
 
     async function loadCurrentAccounts() {
       try {
+        tableContainer.replaceChildren(createSkeleton('row', 5));
         const accts = await api('/accounts');
         tableContainer.replaceChildren(renderAccountTable(accts));
       } catch (e) {
@@ -1363,6 +1751,224 @@
     // Inisialisasi daftar akun saat halaman dibuka
     loadCurrentAccounts();
 
+    // --- 4. Flow AI Prompt Studio & Live Preview ---
+    function createPromptStudio() {
+      const PRESETS = [
+        {
+          name: '⭐ TungTung Review & UGC (Default Shopee)',
+          prompt: 'Cinematic ultra-realistic product review video of {title}. High resolution 4k, vertical 9:16 mobile orientation, dynamic camera movement rotating 360 around the item on a clean modern studio desk with warm studio lighting. Authentic aesthetic, crisp textures, depth of field.',
+          vo: 'Wajib banget punya ini! Review jujur {title} dari toko {shop}, kualitasnya beneran premium dan worth it banget buat kalian yang lagi nyari {category}. Cek keranjang kuning sekarang sebelum diskonnya habis!',
+          caption: 'Rekomendasi terbaik buat kalian! {title} dari {shop}. Jangan sampai kehabisan diskon dan gratis ongkirnya ya! ✨ #racunshopee #shopeevideo #shopeehaul #spillracunshopee #rekomendasiproduk #viral #fyp'
+        },
+        {
+          name: '💡 Problem - Solution Storytelling',
+          prompt: 'Problem to solution storytelling commercial for {title}. Starting with frustrated expression solving everyday trouble, transitioning to satisfying smooth usage of {title} in bright aesthetic room, 9:16 portrait view, modern colors.',
+          vo: 'Dulu sering banget kesel sama masalah ini, sampai akhirnya nemu {title}! Praktis banget dipakai sehari-hari, bener-bener ngebantu buat {category}. Buruan checkout di keranjang kuning di bawah ya!',
+          caption: 'Solusi praktis anti ribet! {title} bikin hidup jadi lebih gampang. Yuk checkout sekarang sebelum voucher diskonnya hangus! 🔥 #solusipraktis #racunshopee #shopeefeed #racuntiktok #gadgetmurah'
+        },
+        {
+          name: '🏷️ Flash Sale Promo & Value',
+          prompt: 'Fast-paced trendy promotional showcase for {title}. Bright energetic lighting, macro close-up of fine craftsmanship and materials, smooth vertical panning 9:16, vibrant Shopee style.',
+          vo: 'Harga semurah ini dapet barang sebagus {title}? Jangan kaget ya! Langsung klaim voucher diskon dan gratis ongkir sekarang juga di keranjang kuning!',
+          caption: 'Flash sale termurah hari ini! {title} original bergaransi resmi dari {shop}. Klik keranjang kuning sekarang! 💥 #promoshopee #diskonspesial #shopeecheck #gratisongkir #murahlebay'
+        },
+        {
+          name: '✨ POV Aesthetic & Minimalist',
+          prompt: 'POV aesthetic lifestyle showcase of {title}. Soft natural morning sunlight pouring through window, wooden minimalist table, slow-motion gentle touch, ultra crisp 4k 9:16 vertical cinematography.',
+          vo: 'Satu barang kecil yang bikin hari-hari lebih rapi dan aesthetic. Ini dia {title}. Simpel tapi fungsinya luar biasa. Cek keranjang kuning ya!',
+          caption: 'Menambah sentuhan aesthetic di keseharianmu ✨ {title} dari {shop}. Checkout di keranjang kuning sekarang! #aesthetic #shopeelook #racunshopee #minimalist'
+        }
+      ];
+
+      const sampleTitle = h('input', {
+        value: localStorage.getItem('prompt_sample_title') || 'TWS Bluetooth 5.3 Earphone Bass Stereo Waterproof',
+        placeholder: 'Judul Contoh Produk...',
+        style: 'width: 100%; font-size: 13px;'
+      });
+      const sampleShop = h('input', {
+        value: localStorage.getItem('prompt_sample_shop') || 'Official Store Indonesia',
+        placeholder: 'Nama Toko...',
+        style: 'width: 100%; font-size: 13px;'
+      });
+      const sampleCat = h('input', {
+        value: localStorage.getItem('prompt_sample_cat') || 'Elektronik & Audio',
+        placeholder: 'Kategori...',
+        style: 'width: 100%; font-size: 13px;'
+      });
+
+      const promptTa = h('textarea', { rows: 5, style: 'width: 100%; font-size: 12px; font-family: monospace;' });
+      const voTa = h('textarea', { rows: 4, style: 'width: 100%; font-size: 12px;' });
+      const captionTa = h('textarea', { rows: 4, style: 'width: 100%; font-size: 12px;' });
+
+      const presetSel = h('select', { style: 'font-weight: 600; width: 100%;' },
+        PRESETS.map((p, idx) => h('option', { value: idx }, p.name))
+      );
+
+      function applyPreset(idx) {
+        const p = PRESETS[idx] || PRESETS[0];
+        promptTa.value = p.prompt;
+        voTa.value = p.vo;
+        captionTa.value = p.caption;
+        updatePreview();
+      }
+
+      presetSel.addEventListener('change', () => applyPreset(parseInt(presetSel.value, 10)));
+
+      const outPromptBox = h('div', { style: 'font-size: 12px; line-height: 1.45; color: #334155; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; max-height: 110px; overflow-y: auto; font-family: monospace; white-space: pre-wrap;' });
+      const outVoBox = h('div', { style: 'font-size: 12px; line-height: 1.45; color: #1e293b; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; max-height: 90px; overflow-y: auto; white-space: pre-wrap;' });
+      const mockCaptionBox = h('div', { class: 'mock-caption' });
+      const mockProdTitle = h('span', { style: 'font-size: 11.5px; font-weight: 600; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; display: inline-block;' });
+
+      const copyLivePromptBtn = h('button', {
+        class: 'btn-copy',
+        type: 'button',
+        onclick: () => copyText(outPromptBox.textContent, copyLivePromptBtn)
+      }, '📋 Salin');
+
+      const copyLiveVoBtn = h('button', {
+        class: 'btn-copy',
+        type: 'button',
+        onclick: () => copyText(outVoBox.textContent, copyLiveVoBtn)
+      }, '📋 Salin');
+
+      function updatePreview() {
+        const title = sampleTitle.value.trim() || 'Produk Shopee';
+        const shop = sampleShop.value.trim() || 'Toko Resmi';
+        const cat = sampleCat.value.trim() || 'Rekomendasi';
+
+        localStorage.setItem('prompt_sample_title', title);
+        localStorage.setItem('prompt_sample_shop', shop);
+        localStorage.setItem('prompt_sample_cat', cat);
+
+        const fill = (text) => text
+          .replace(/\{title\}/gi, title)
+          .replace(/\{shop\}/gi, shop)
+          .replace(/\{category\}/gi, cat);
+
+        const renderedPrompt = fill(promptTa.value);
+        const renderedVo = fill(voTa.value);
+        const renderedCaption = fill(captionTa.value);
+
+        outPromptBox.textContent = renderedPrompt;
+        outVoBox.textContent = renderedVo;
+        mockProdTitle.textContent = title;
+
+        mockCaptionBox.replaceChildren();
+        const parts = renderedCaption.split(/(\s+)/);
+        parts.forEach(part => {
+          if (part.startsWith('#') && part.length > 1) {
+            mockCaptionBox.append(h('span', { class: 'tag-pill' }, part));
+          } else {
+            mockCaptionBox.append(document.createTextNode(part));
+          }
+        });
+      }
+
+      [sampleTitle, sampleShop, sampleCat, promptTa, voTa, captionTa].forEach(el => {
+        el.addEventListener('input', updatePreview);
+      });
+
+      applyPreset(0);
+
+      const phoneMockup = h('div', { class: 'phone-mockup' },
+        h('div', { class: 'phone-screen' },
+          h('div', { style: 'display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;' },
+            h('div', { style: 'display: flex; align-items: center; gap: 8px;' },
+              h('div', { style: 'width: 28px; height: 28px; border-radius: 50%; background: #ee4d2d; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700;' }, 'S'),
+              h('div', {},
+                h('div', { style: 'font-size: 12px; font-weight: 700;' }, '@shopee_affiliate'),
+                h('div', { style: 'font-size: 10px; color: #94a3b8;' }, 'Shopee Video Creator')
+              )
+            ),
+            h('span', { style: 'background: #ee4d2d; color: #fff; font-size: 10.5px; padding: 3px 8px; border-radius: 12px; font-weight: 600;' }, '+ Ikuti')
+          ),
+          h('div', { style: 'height: 150px; background: linear-gradient(180deg, #1e293b, #0f172a); border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 1px solid #334155;' },
+            h('div', { style: 'font-size: 36px; filter: drop-shadow(0 2px 8px rgba(238,77,45,0.4));' }, '▶️'),
+            h('div', { style: 'font-size: 11px; color: #94a3b8; margin-top: 6px;' }, 'Format Video Vertikal (9:16)'),
+            h('div', { style: 'position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 6px; align-items: center; font-size: 10px;' },
+              h('div', { style: 'display: flex; flex-direction: column; align-items: center;' }, h('span', { style: 'font-size: 15px;' }, '❤️'), '14.8k'),
+              h('div', { style: 'display: flex; flex-direction: column; align-items: center;' }, h('span', { style: 'font-size: 15px;' }, '💬'), '829'),
+              h('div', { style: 'display: flex; flex-direction: column; align-items: center;' }, h('span', { style: 'font-size: 15px;' }, '↗️'), 'Bagikan')
+            )
+          ),
+          h('div', { style: 'background: rgba(238,77,45,0.15); border: 1px solid rgba(238,77,45,0.4); border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; gap: 8px;' },
+            h('span', { style: 'font-size: 15px;' }, '🛒'),
+            h('div', { style: 'display: flex; flex-direction: column; overflow: hidden;' },
+              h('span', { style: 'font-size: 10px; color: #ff8a65; font-weight: 700;' }, 'KERANJANG KUNING SHOPEE'),
+              mockProdTitle
+            )
+          ),
+          mockCaptionBox
+        )
+      );
+
+      const splitView = h('div', { class: 'split-view' },
+        h('div', { class: 'editor-panel' },
+          h('h3', { style: 'font-size: 14px; font-weight: 700; margin: 0; color: #1e293b;' }, '⚙️ Formula Prompt & Templat Variabel'),
+          h('div', { class: 'form-group' },
+            h('label', { style: 'font-weight: 600; font-size: 12.5px;' }, 'Pilih Preset Templat:'),
+            presetSel
+          ),
+          h('div', { style: 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px;' },
+            h('div', {},
+              h('label', { style: 'font-size: 11.5px; font-weight: 600;' }, 'Contoh Variabel {title}:'),
+              sampleTitle
+            ),
+            h('div', {},
+              h('label', { style: 'font-size: 11.5px; font-weight: 600;' }, 'Contoh Variabel {shop}:'),
+              sampleShop
+            )
+          ),
+          h('div', {},
+            h('label', { style: 'font-size: 11.5px; font-weight: 600;' }, 'Contoh Variabel {category}:'),
+            sampleCat
+          ),
+          h('div', {},
+            h('label', { style: 'font-weight: 600; font-size: 12px; display: flex; justify-content: space-between;' },
+              h('span', {}, '🎬 Templat Prompt Google Flow:'),
+              h('span', { class: 'hint', style: 'font-size: 11px;' }, 'Pakai {title}, {shop}, {category}')
+            ),
+            promptTa
+          ),
+          h('div', {},
+            h('label', { style: 'font-weight: 600; font-size: 12px;' }, '🎙️ Templat Naskah Voiceover / Hook:'),
+            voTa
+          ),
+          h('div', {},
+            h('label', { style: 'font-weight: 600; font-size: 12px;' }, '📝 Templat Caption & Hashtag Shopee:'),
+            captionTa
+          )
+        ),
+        h('div', { class: 'preview-panel' },
+          h('h3', { style: 'font-size: 14px; font-weight: 700; margin: 0; color: #1e293b;' }, '📱 Pratinjau Langsung (Side-by-Side Live Preview)'),
+          h('p', { class: 'hint', style: 'margin: 0; font-size: 12px;' }, 'Perubahan formula di sebelah kiri otomatis ter-render langsung ke cuplikan Shopee Video dan Google Flow:'),
+          phoneMockup,
+          h('div', { style: 'margin-top: 10px;' },
+            h('div', { style: 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;' },
+              h('b', { style: 'font-size: 12px; color: #1e293b;' }, '🎬 Hasil Prompt Google Flow:'),
+              copyLivePromptBtn
+            ),
+            outPromptBox
+          ),
+          h('div', { style: 'margin-top: 8px;' },
+            h('div', { style: 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;' },
+              h('b', { style: 'font-size: 12px; color: #1e293b;' }, '🎙️ Hasil Voiceover / Hook:'),
+              copyLiveVoBtn
+            ),
+            outVoBox
+          )
+        )
+      );
+
+      return h('section', {},
+        h('h2', {}, 'Flow AI Prompt Studio & Live Preview'),
+        h('p', { class: 'hint' }, 'Kembangkan dan uji templat prompt Google Flow serta caption Shopee Video secara berdampingan tanpa harus membuat tugas antrean terlebih dahulu:'),
+        splitView
+      );
+    }
+
+    const promptStudioSection = createPromptStudio();
+
     main.replaceChildren(
       vmosSection,
       h('section', {},
@@ -1384,6 +1990,7 @@
         h('h2', {}, 'Daftar Akun yang Dimuat'),
         tableContainer
       ),
+      promptStudioSection,
       h('details', { class: 'collapse-box' },
         h('summary', { class: 'collapse-summary' },
           h('span', {}, '📁 Alternatif: Impor Akun dari File CSV Lokal PC'),

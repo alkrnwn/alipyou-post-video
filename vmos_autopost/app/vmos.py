@@ -115,6 +115,10 @@ class VmosAdapter(ABC):
         """Best-effort: bersihkan entri galeri. Default tidak melakukan apa pun."""
         return None
 
+    def get_screenshot(self, pad_code):
+        """Ambil tangkapan layar emulator (PNG bytes) jika didukung."""
+        return None
+
 
 class HttpVmosAdapter(VmosAdapter):
     """Adapter VMOS Cloud API resmi + ADB."""
@@ -446,6 +450,17 @@ class HttpVmosAdapter(VmosAdapter):
             "--bind", f"title:s:{fname}",
             "--bind", f"_display_name:s:{fname}"
         ])
+
+    def get_screenshot(self, pad_code):
+        try:
+            target = self._get_target_serial(pad_code)
+            cmd = [self.adb_path, "-s", target, "exec-out", "screencap", "-p"]
+            res = subprocess.run(cmd, capture_output=True, timeout=12)
+            if res.returncode == 0 and len(res.stdout) > 200:
+                return res.stdout
+        except Exception:
+            pass
+        return None
 
 
 class FakeVmos(VmosAdapter):

@@ -283,5 +283,28 @@ def test_storage_stats_dan_clean_cache(tmp_path):
         assert "lines" in res_logs.json()
 
 
+def test_task_screenshot_api(tmp_path):
+    v = tmp_path / "v.mp4"
+    v.write_bytes(b"dummy_video_bytes")
+    csv = tmp_path / "a.csv"
+    csv.write_text("KODE,USERNAME,PAD CODE,VMOS\nA1,shopee_test,PAD_TEST,V1\n", encoding="utf-8")
+    app = create_app(str(tmp_path / "sc.db"), vmos=FakeVmos(), background=False)
+    with TestClient(app, base_url="http://127.0.0.1") as c:
+        c.post("/sync/csv", json={"path": str(csv)})
+        c.post("/videos", json={"id": "v1", "master_path": str(v)})
+        tid = c.post("/tasks", json={"username": "shopee_test", "video_id": "v1"}).json()["id"]
+
+        # 404 on nonexistent task
+        assert c.get("/api/tasks/9999/screenshot").status_code == 404
+
+        # 200 SVG fallback on existing task
+        res = c.get(f"/api/tasks/{tid}/screenshot")
+        assert res.status_code == 200
+        assert "image/svg+xml" in res.headers["content-type"]
+        assert b"shopee_test" in res.content
+        assert b"PAD_TEST" in res.content
+
+
+
 
 

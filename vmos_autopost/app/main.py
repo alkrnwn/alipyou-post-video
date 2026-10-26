@@ -319,6 +319,43 @@ def create_app(db_path=None, config=None, vmos=None, background=True):
     def history(task_id: int):
         return svc.history(task_id)
 
+    @app.get("/api/tasks/{task_id}/screenshot")
+    def get_task_screenshot(task_id: int):
+        try:
+            task = svc.get_task(task_id)
+        except NotFound:
+            raise HTTPException(404, "Tugas tidak ditemukan")
+        if not task:
+            raise HTTPException(404, "Tugas tidak ditemukan")
+        pad_code = task.get("pad_code") or ""
+        username = task.get("username") or ""
+        status = task.get("status") or ""
+
+        if hasattr(vm, "get_screenshot") and pad_code:
+            png = vm.get_screenshot(pad_code)
+            if png:
+                return Response(content=png, media_type="image/png")
+
+        status_color = "#f59e0b" if status in ("NEEDS_OPERATOR", "REVIEW_REQUIRED") else "#10b981"
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="220" height="390" viewBox="0 0 220 390">'
+            f'<rect width="220" height="390" rx="20" fill="#0f172a"/>'
+            f'<rect x="8" y="8" width="204" height="374" rx="14" fill="#1e293b"/>'
+            f'<circle cx="110" cy="20" r="4" fill="#475569"/>'
+            f'<rect x="18" y="36" width="184" height="28" rx="6" fill="#334155"/>'
+            f'<text x="110" y="55" font-family="sans-serif" font-size="11" font-weight="bold" text-anchor="middle" fill="#cbd5e1">VMOS: {pad_code}</text>'
+            f'<circle cx="110" cy="140" r="32" fill="{status_color}" fill-opacity="0.15"/>'
+            f'<text x="110" y="148" font-family="sans-serif" font-size="28" text-anchor="middle" fill="{status_color}">📱</text>'
+            f'<text x="110" y="200" font-family="sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#ffffff">@{username}</text>'
+            f'<text x="110" y="222" font-family="sans-serif" font-size="11" text-anchor="middle" fill="{status_color}">Status: {status}</text>'
+            f'<rect x="24" y="250" width="172" height="42" rx="6" fill="#0f172a" fill-opacity="0.6"/>'
+            f'<text x="110" y="268" font-family="sans-serif" font-size="10" text-anchor="middle" fill="#94a3b8">Emulator Layar Aktif</text>'
+            f'<text x="110" y="282" font-family="sans-serif" font-size="9" text-anchor="middle" fill="#64748b">Tangkapan layar emulator VMOS</text>'
+            f'<line x1="85" y1="365" x2="135" y2="365" stroke="#475569" stroke-width="3" stroke-linecap="round"/>'
+            f'</svg>'
+        )
+        return Response(content=svg.encode("utf-8"), media_type="image/svg+xml")
+
     @app.post("/queue/start-next")
     def start_next(body: StartIn):
         if not vm.ready:
