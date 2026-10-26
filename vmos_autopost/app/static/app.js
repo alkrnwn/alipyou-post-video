@@ -1969,6 +1969,77 @@
 
     const promptStudioSection = createPromptStudio();
 
+    // --- 5. Online Update & Versi Aplikasi ---
+    const updateFeedback = h('div', { style: 'margin-top: 10px;' });
+    const btnCheckUpdate = h('button', {
+      class: 'btn primary',
+      style: 'font-weight: 600; padding: 7px 18px;',
+      onclick: async () => {
+        btnCheckUpdate.disabled = true;
+        btnCheckUpdate.textContent = '⏳ Memeriksa ke GitHub...';
+        updateFeedback.replaceChildren(h('div', { class: 'banner', style: 'background: #f0f7ff; color: #0c5460;' },
+          '⏳ Menghubungi server GitHub untuk memeriksa versi rilis terbaru...'));
+        try {
+          const verInfo = await api('/api/version');
+          const currentVer = verInfo.version || '1.0.0';
+          const r = await fetch('https://api.github.com/repos/alkrnwn/alipyou-post-video/releases/latest', {
+            headers: { 'Accept': 'application/vnd.github.v3+json' }
+          });
+          if (r.status === 404) {
+            updateFeedback.replaceChildren(h('div', { class: 'banner', style: 'background: #e8f5e9; color: #1b5e20; font-weight: 600;' },
+              `✓ Anda menggunakan versi terbaru (v${currentVer}). Belum ada rilis update baru di GitHub.`));
+          } else if (r.ok) {
+            const data = await r.json();
+            const latestTag = (data.tag_name || '').replace(/^v/, '');
+            if (latestTag && latestTag !== currentVer) {
+              const downloadAsset = (data.assets || []).find(a => a.name.endsWith('.exe')) || { browser_download_url: data.html_url };
+              updateFeedback.replaceChildren(h('div', { class: 'banner', style: 'background: #fffbeb; border-color: #f59e0b; color: #b45309;' },
+                h('div', { style: 'font-size: 14px; font-weight: 700; margin-bottom: 6px;' }, `🎉 Pembaruan Tersedia: Versi ${data.tag_name}!`),
+                h('div', { style: 'font-size: 12.5px; margin-bottom: 10px; color: #78350f;' }, data.body || 'Pembaruan stabilitas, perbaikan fitur, dan performa aplikasi.'),
+                h('a', {
+                  href: downloadAsset.browser_download_url || data.html_url,
+                  target: '_blank',
+                  class: 'btn primary',
+                  style: 'text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 700;'
+                }, `⬇️ Unduh Installer ${data.tag_name} (${downloadAsset.name || 'Setup .exe'})`)
+              ));
+            } else {
+              updateFeedback.replaceChildren(h('div', { class: 'banner', style: 'background: #e8f5e9; color: #1b5e20; font-weight: 600;' },
+                `✓ Aplikasi sudah dalam versi terbaru (v${currentVer}). Tidak ada pembaruan baru.`));
+            }
+          } else {
+            throw new Error(`Server GitHub merespons status ${r.status}`);
+          }
+        } catch (e) {
+          updateFeedback.replaceChildren(h('div', { class: 'banner bad' },
+            `Gagal memeriksa pembaruan: ${e.message}. Buka halaman rilis resmi di ` +
+            `https://github.com/alkrnwn/alipyou-post-video/releases`));
+        } finally {
+          btnCheckUpdate.disabled = false;
+          btnCheckUpdate.textContent = '🔄 Periksa Pembaruan Sekarang';
+        }
+      }
+    }, '🔄 Periksa Pembaruan Sekarang');
+
+    const updateSection = h('section', { class: 'card', style: 'background: #ffffff; border: 1.5px solid var(--line); padding: 18px; border-radius: 12px; margin-top: 18px;' },
+      h('div', { style: 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;' },
+        h('h3', { style: 'font-size: 15px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 8px;' },
+          '🌐 Pembaruan Aplikasi Online (Online Update)',
+          h('span', { class: 'badge', style: 'background: #dbeafe; color: #1e40af; font-size: 11.5px; padding: 2px 8px;' }, 'v1.0.0')
+        ),
+        h('a', {
+          href: 'https://github.com/alkrnwn/alipyou-post-video/releases',
+          target: '_blank',
+          class: 'btn',
+          style: 'font-size: 12px; text-decoration: none;'
+        }, '🔗 Halaman Rilis GitHub')
+      ),
+      h('p', { class: 'hint', style: 'margin: 0 0 12px; font-size: 13px;' },
+        'Aplikasi dapat memeriksa versi pembaruan terbaru secara online langsung dari server repositori GitHub.'),
+      h('div', { class: 'row', style: 'gap: 10px;' }, btnCheckUpdate),
+      updateFeedback
+    );
+
     main.replaceChildren(
       vmosSection,
       h('section', {},
@@ -2003,6 +2074,7 @@
       ),
       h('p', { class: 'hint' }, 'Kolom yang dibaca otomatis: KODE, USERNAME, PAD CODE, VMOS, STATUS. Kolom kredensial pribadi (password, email, cookie) diabaikan demi privasi dan keamanan akun Anda.'),
       storageSection,
+      updateSection,
       h('details', { class: 'collapse-box' },
         h('summary', { class: 'collapse-summary' },
           h('span', {}, '⚙️ Parameter Konfigurasi Sistem (Lanjutan / Advanced)'),

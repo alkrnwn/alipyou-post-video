@@ -363,6 +363,16 @@ def create_app(db_path=None, config=None, vmos=None, background=True):
         )
         return Response(content=svg.encode("utf-8"), media_type="image/svg+xml")
 
+    @app.get("/api/version")
+    def get_app_version():
+        return {
+            "version": "1.0.0",
+            "repo_url": "https://github.com/alkrnwn/alipyou-post-video",
+            "releases_api": "https://api.github.com/repos/alkrnwn/alipyou-post-video/releases/latest",
+            "releases_web": "https://github.com/alkrnwn/alipyou-post-video/releases"
+        }
+
+
     @app.post("/queue/start-next")
     def start_next(body: StartIn):
         if not vm.ready:

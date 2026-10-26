@@ -6,6 +6,11 @@ const net = require('net');
 const path = require('path');
 const fs = require('fs');
 
+let autoUpdater = null;
+try {
+  autoUpdater = require('electron-updater').autoUpdater;
+} catch (_) {}
+
 let py = null;
 let win = null;
 let stderrBuf = '';
@@ -122,12 +127,68 @@ async function start() {
     return { action: 'deny' };
   });
   win.loadURL(`${origin}/?t=${token}`);
+  setupAutoUpdater();
   py.on('exit', () => {
     if (win && !win.isDestroyed()) {
       dialog.showErrorBox('Backend berhenti', stderrBuf || 'Proses backend berhenti tiba-tiba.');
       app.quit();
     }
   });
+}
+
+function setupAutoUpdater() {
+  if (!app.isPackaged || !autoUpdater) return;
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    dialog.showMessageBox(win, {
+      type: 'info',
+      title: 'Pembaruan Online Tersedia',
+      message: `Versi baru (${info.version}) telah tersedia di GitHub!`,
+      detail: `Versi saat ini: v${app.getVersion()}\nVersi terbaru: v${info.version}\n\nApakah Anda ingin mengunduh pembaruan sekarang?`,
+      buttons: ['Ya, Unduh Pembaruan', 'Nanti Saja'],
+      defaultId: 0,
+      cancelId: 1
+    }).then((res) => {
+      if (res.response === 0) {
+        autoUpdater.downloadUpdate();
+        dialog.showMessageBox(win, {
+          type: 'info',
+          title: 'Sedang Mengunduh',
+          message: 'Pembaruan sedang diunduh di latar belakang. Aplikasi akan memberi tahu setelah selesai.',
+          buttons: ['OK']
+        });
+      }
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    dialog.showMessageBox(win, {
+      type: 'question',
+      title: 'Pembaruan Siap Dipasang',
+      message: `Versi baru (${info.version}) telah selesai diunduh!`,
+      detail: 'Mulai ulang aplikasi sekarang untuk menerapkan versi terbaru?',
+      buttons: ['Mulai Ulang Sekarang', 'Nanti Saat Ditutup'],
+      defaultId: 0
+    }).then((res) => {
+      if (res.response === 0) {
+        stopBackend();
+        autoUpdater.quitAndInstall();
+      }
+    });
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('AutoUpdater Error:', err);
+  });
+
+  setTimeout(() => {
+    try {
+      autoUpdater.checkForUpdates().catch(() => {});
+    } catch (_) {}
+  }, 5000);
 }
 
 app.whenReady().then(start);
