@@ -19,6 +19,8 @@ ENV/
 env/
 .env
 .env.local
+*token.txt
+github_token.txt
 
 # Database & SQLite
 *.db
