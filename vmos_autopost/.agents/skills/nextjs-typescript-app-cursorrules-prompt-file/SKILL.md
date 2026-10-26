@@ -1,0 +1,9 @@
+---
+name: "nextjs-typescript-app-cursorrules-prompt-file"
+description: "Cursor rules for Next.js development with TypeScript integration."
+globs: "**/*"
+---
+
+This project, named Astral, the Block Explorer of Autonomys network, is built using Next.js and TypeScript.
+
+It integrates various libraries for state management, UI components, and data fetching.

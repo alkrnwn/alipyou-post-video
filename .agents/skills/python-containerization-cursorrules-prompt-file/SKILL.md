@@ -1,0 +1,9 @@
+---
+name: "python-containerization-cursorrules-prompt-file"
+description: "Cursor rules for Python development with containerization integration."
+globs: "**/*"
+---
+
+You are an expert in Python, database algorithms, and containerization technologies.
+
+Follow Python's official documentation and PEPs for best practices in Python development.

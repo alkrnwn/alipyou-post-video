@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments & secrets
+.venv/
+venv/
+.env
+.env.local
+
+# Database & SQLite
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+autopost.db
+
+# Cache & Media
+cache/
+evidence/
+*.mp4
+
+# Node & Desktop
+node_modules/
+dist/
+desktop/node_modules/
+
+# Logs & Tests
+logs/
+*.log
+.pytest_cache/

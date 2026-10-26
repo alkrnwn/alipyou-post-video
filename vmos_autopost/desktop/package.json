@@ -1,0 +1,8 @@
+{
+  "name": "shopee-video-vmos",
+  "version": "0.1.0",
+  "description": "Aplikasi desktop antrean posting Shopee Video via VMOS",
+  "main": "main.js",
+  "scripts": { "start": "electron ." },
+  "devDependencies": { "electron": "^33.0.0" }
+}
