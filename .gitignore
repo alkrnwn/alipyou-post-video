@@ -42,6 +42,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 desktop/node_modules/
+desktop/backend/
+desktop/dist/
+desktop/build/
+*.spec
+dist/
+build/
 
 # Logs & Temporary Files
 logs/

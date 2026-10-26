@@ -145,10 +145,21 @@ class HttpVmosAdapter(VmosAdapter):
         if custom_adb and os.path.isfile(custom_adb):
             self.adb_path = custom_adb
         else:
-            default_candidate = r"C:\Users\Administrator\AppData\Roaming\TungTungPoster\adb.exe"
-            if os.path.isfile(default_candidate):
-                self.adb_path = default_candidate
-            else:
+            candidates = [
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "adb", "adb.exe"),
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "adb", "adb.exe"),
+                os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "adb", "adb.exe"),
+                os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "adb.exe"),
+                getattr(sys, "_MEIPASS", "") and os.path.join(getattr(sys, "_MEIPASS", ""), "adb", "adb.exe"),
+                r"C:\Users\Administrator\AppData\Roaming\TungTungPoster\adb.exe",
+            ]
+            found = False
+            for c in candidates:
+                if c and os.path.isfile(c):
+                    self.adb_path = os.path.abspath(c)
+                    found = True
+                    break
+            if not found:
                 self.adb_path = shutil.which("adb") or "adb"
 
         # Tunnel SSH per pad_code: pad_code -> {'serial': str, 'port': int, 'client': paramiko, 'server': server}

@@ -20,11 +20,18 @@ autopost.db
 cache/
 evidence/
 *.mp4
+adb/*.exe
+adb/*.dll
 
 # Node & Desktop
 node_modules/
 dist/
+build/
+*.spec
 desktop/node_modules/
+desktop/backend/
+desktop/dist/
+desktop/build/
 
 # Logs & Tests
 logs/

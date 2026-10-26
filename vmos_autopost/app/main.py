@@ -12,12 +12,19 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import sheets
+import sys
 from .service import (Config, DuplicateTask, GuardError, InvalidTransition,
                       NotFound, Service)
 from .states import CANCELLED, FAILED, NEEDS_OPERATOR, PREPARING, QUEUED, VERIFIED
 from .vmos import FakeVmos, HttpVmosAdapter
 
-STATIC = Path(__file__).parent / "static"
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    STATIC = Path(sys._MEIPASS) / "app" / "static"
+    if not STATIC.exists():
+        STATIC = Path(sys._MEIPASS) / "static"
+else:
+    STATIC = Path(__file__).parent / "static"
+
 
 
 class TaskIn(BaseModel):

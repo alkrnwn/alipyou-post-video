@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const http = require('http');
 const net = require('net');
 const path = require('path');
+const fs = require('fs');
 
 let py = null;
 let win = null;
@@ -46,15 +47,51 @@ function stopBackend() {
 async function start() {
   const port = await freePort();
   const token = crypto.randomBytes(24).toString('hex');
-  const python = process.env.AUTOPOST_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
-  const root = path.join(__dirname, '..');
-  py = spawn(python,
-    ['-m', 'uvicorn', 'app.main:app_factory', '--factory', '--host', '127.0.0.1', '--port', String(port)],
-    {
-      cwd: root,
+  const dbPath = path.join(app.getPath('userData'), 'autopost.db');
+
+  const candidatePaths = [
+    path.join(process.resourcesPath, 'backend', 'backend', 'backend.exe'),
+    path.join(process.resourcesPath, 'backend', 'backend.exe'),
+    path.join(__dirname, 'backend', 'backend', 'backend.exe'),
+    path.join(__dirname, 'backend', 'backend.exe'),
+  ];
+
+  let backendExe = null;
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      backendExe = p;
+      break;
+    }
+  }
+
+  if (backendExe) {
+    const backendCwd = path.dirname(backendExe);
+    py = spawn(backendExe, [
+      '--host', '127.0.0.1',
+      '--port', String(port),
+      '--token', token,
+      '--db', dbPath,
+      ...(process.env.AUTOPOST_DRYRUN === '1' ? ['--dry-run'] : []),
+    ], {
+      cwd: backendCwd,
       windowsHide: true,
-      env: { ...process.env, AUTOPOST_TOKEN: token, AUTOPOST_DB: path.join(app.getPath('userData'), 'autopost.db') },
+      env: {
+        ...process.env,
+        AUTOPOST_TOKEN: token,
+        AUTOPOST_DB: dbPath,
+      },
     });
+  } else {
+    const python = process.env.AUTOPOST_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+    const root = path.join(__dirname, '..');
+    py = spawn(python,
+      ['-m', 'uvicorn', 'app.main:app_factory', '--factory', '--host', '127.0.0.1', '--port', String(port)],
+      {
+        cwd: root,
+        windowsHide: true,
+        env: { ...process.env, AUTOPOST_TOKEN: token, AUTOPOST_DB: dbPath },
+      });
+  }
   py.stderr.on('data', (d) => { stderrBuf = (stderrBuf + d.toString()).slice(-4000); });
   py.on('error', (e) => { stderrBuf += '\n' + e.message; });
 
